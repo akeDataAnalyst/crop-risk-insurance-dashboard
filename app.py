@@ -25,11 +25,7 @@ Built with a compact Random Forest classifier (86.2% accuracy, 80.0% recall on M
 def load_model():
     model_path = "../models/risk_classifier_rf_small.joblib"
     encoder_path = "../models/risk_class_encoder.joblib"
-    
-    if not os.path.exists(model_path) or not os.path.exists(encoder_path):
-        st.warning("Model files not found locally. Using fallback rule-based prediction.")
-        return None, None
-    
+        
     try:
         rf_clf = joblib.load(model_path)
         le = joblib.load(encoder_path)
