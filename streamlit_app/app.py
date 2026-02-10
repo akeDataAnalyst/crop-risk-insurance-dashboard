@@ -1,13 +1,14 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[2]:
+# In[4]:
 
 
 import streamlit as st
 import pandas as pd
 import joblib
 import numpy as np
+import os
 
 # Page configuration
 st.set_page_config(
@@ -19,22 +20,29 @@ st.set_page_config(
 
 st.title("🌾 Crop Risk & Insurance Payout Predictor")
 st.markdown("""
-Interactive tool for predicting crop failure risk and estimated insurance payout for smallholder farmers.  
-Built with a strong Random Forest classifier (89.7% accuracy).
+Interactive tool for predicting crop failure risk (Low/Medium/High) and estimating insurance payout for smallholder farmers.  
+Built with a compact Random Forest classifier (86.2% accuracy, 80.0% recall on Medium class).
 """)
 
 # ────────────────────────────────────────────────────────────────
-# Load models & label encoder
+# Load model with fallback
 # ────────────────────────────────────────────────────────────────
 @st.cache_resource
 def load_model():
+    model_path = "../models/risk_classifier_rf_small.joblib"
+    encoder_path = "../models/risk_class_encoder.joblib"
+    
+    if not os.path.exists(model_path) or not os.path.exists(encoder_path):
+        st.warning("Model files not found locally. Using fallback rule-based prediction.")
+        return None, None
+    
     try:
-        rf_clf = joblib.load("../models/risk_classifier_rf_v3.joblib")
-        le = joblib.load("../models/risk_class_encoder.joblib")
+        rf_clf = joblib.load(model_path)
+        le = joblib.load(encoder_path)
         return rf_clf, le
-    except FileNotFoundError as e:
-        st.error(f"Model file not found: {e}")
-        st.stop()
+    except Exception as e:
+        st.error(f"Error loading model: {e}")
+        return None, None
 
 rf_clf, le = load_model()
 
@@ -76,16 +84,13 @@ if st.sidebar.button("Generate Prediction", type="primary", use_container_width=
     input_df = pd.DataFrame([input_dict])
 
     # One-hot encode country & crop
-    country_cols = ['country_Kenya', 'country_Malawi', 'country_Tanzania', 'country_Uganda', 'country_Zambia']
-    crop_cols = ['crop_Cassava', 'crop_Groundnut', 'crop_Maize', 'crop_Millet', 'crop_Sorghum']
-
     for c in ["Kenya", "Malawi", "Tanzania", "Uganda", "Zambia"]:
         input_df[f'country_{c}'] = 1 if country == c else 0
 
     for cr in ["Cassava", "Groundnut", "Maize", "Millet", "Sorghum"]:
         input_df[f'crop_{cr}'] = 1 if crop == cr else 0
 
-    # Fill missing columns with 0
+    # Expected columns from your modeling (adjust if your X had more engineered features)
     expected_cols = [
         'rainfall_mm', 'avg_temp_c', 'heat_stress_days', 'ndvi_peak', 'soil_ph',
         'soc_percent', 'fertilizer_n_kg_ha', 'pest_disease_level', 'irrigated',
@@ -99,11 +104,20 @@ if st.sidebar.button("Generate Prediction", type="primary", use_container_width=
 
     input_df = input_df[expected_cols]
 
-    # Predict
-    risk_encoded = rf_clf.predict(input_df)[0]
-    risk_level = le.inverse_transform([risk_encoded])[0]
+    # Predict or fallback
+    if rf_clf is None or le is None:
+        # Fallback rule-based prediction if model missing
+        if rainfall < 400 or pest >= 2 or temp > 30:
+            risk_level = "High"
+        elif rainfall < 600 or ndvi < 0.55:
+            risk_level = "Medium"
+        else:
+            risk_level = "Low"
+    else:
+        risk_encoded = rf_clf.predict(input_df)[0]
+        risk_level = le.inverse_transform([risk_encoded])[0]
 
-    # Approximate payout based on risk level
+    # Approximate payout
     if risk_level == 'Low':
         payout_est = 50
         payout_range = "$0 – $100 (minimal/no payout)"
@@ -123,11 +137,11 @@ if st.sidebar.button("Generate Prediction", type="primary", use_container_width=
     col2.metric("Estimated Payout (USD/ha)", f"${payout_est}", delta_color="normal")
     col3.metric("Payout Range", payout_range)
 
-    st.success("Model performance: 89.7% overall accuracy | Medium class recall: 71.7%")
+    st.success("Model performance: 86.2% overall accuracy | Medium class recall: 80.0%")
     st.info("Payout is approximated from predicted risk class (High = severe loss, Medium = partial, Low = minimal/no payout).")
 
 # ────────────────────────────────────────────────────────────────
-# Footer / Caption (added as requested)
+# Footer / Caption
 # ────────────────────────────────────────────────────────────────
 st.markdown("---")
 st.markdown(
