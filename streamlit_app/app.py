@@ -1,14 +1,7 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[4]:
-
-
 import streamlit as st
 import pandas as pd
 import joblib
 import numpy as np
-import os
 
 # Page configuration
 st.set_page_config(
@@ -25,24 +18,13 @@ Built with a compact Random Forest classifier (86.2% accuracy, 80.0% recall on M
 """)
 
 # ────────────────────────────────────────────────────────────────
-# Load model with fallback
+# Load the models
 # ────────────────────────────────────────────────────────────────
 @st.cache_resource
 def load_model():
-    model_path = "../models/risk_classifier_rf_small.joblib"
-    encoder_path = "../models/risk_class_encoder.joblib"
-    
-    if not os.path.exists(model_path) or not os.path.exists(encoder_path):
-        st.warning("Model files not found locally. Using fallback rule-based prediction.")
-        return None, None
-    
-    try:
-        rf_clf = joblib.load(model_path)
-        le = joblib.load(encoder_path)
-        return rf_clf, le
-    except Exception as e:
-        st.error(f"Error loading model: {e}")
-        return None, None
+    rf_clf = joblib.load("../models/risk_classifier_rf_small.joblib")
+    le = joblib.load("../models/risk_class_encoder.joblib")
+    return rf_clf, le
 
 rf_clf, le = load_model()
 
@@ -90,7 +72,7 @@ if st.sidebar.button("Generate Prediction", type="primary", use_container_width=
     for cr in ["Cassava", "Groundnut", "Maize", "Millet", "Sorghum"]:
         input_df[f'crop_{cr}'] = 1 if crop == cr else 0
 
-    # Expected columns from your modeling (adjust if your X had more engineered features)
+    # Expected columns (adjust if your model had more engineered features)
     expected_cols = [
         'rainfall_mm', 'avg_temp_c', 'heat_stress_days', 'ndvi_peak', 'soil_ph',
         'soc_percent', 'fertilizer_n_kg_ha', 'pest_disease_level', 'irrigated',
@@ -104,20 +86,11 @@ if st.sidebar.button("Generate Prediction", type="primary", use_container_width=
 
     input_df = input_df[expected_cols]
 
-    # Predict or fallback
-    if rf_clf is None or le is None:
-        # Fallback rule-based prediction if model missing
-        if rainfall < 400 or pest >= 2 or temp > 30:
-            risk_level = "High"
-        elif rainfall < 600 or ndvi < 0.55:
-            risk_level = "Medium"
-        else:
-            risk_level = "Low"
-    else:
-        risk_encoded = rf_clf.predict(input_df)[0]
-        risk_level = le.inverse_transform([risk_encoded])[0]
+    # Predict risk class
+    risk_encoded = rf_clf.predict(input_df)[0]
+    risk_level = le.inverse_transform([risk_encoded])[0]
 
-    # Approximate payout
+    # Approximate payout based on risk level
     if risk_level == 'Low':
         payout_est = 50
         payout_range = "$0 – $100 (minimal/no payout)"
@@ -150,4 +123,3 @@ st.markdown(
     "</p>",
     unsafe_allow_html=True
 )
-
